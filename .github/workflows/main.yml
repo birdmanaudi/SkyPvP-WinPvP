@@ -1,0 +1,53 @@
+name: Plugin bauen
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: ZIP entpacken
+        run: |
+          ZIP="$(ls ./*.zip | head -1)"
+          echo "Verwende: $ZIP"
+          unzip -q "$ZIP" -d projekt
+          POM="$(find projekt -name pom.xml | head -1)"
+          echo "POM=$POM" >> "$GITHUB_ENV"
+
+      - name: Plugin bauen
+        run: |
+          set -o pipefail
+          mvn -B package -f "$POM" 2>&1 | tee build.log
+          ls -la "$(dirname "$POM")/target/SkyPvP.jar"
+          cp "$(dirname "$POM")/target/SkyPvP.jar" SkyPvP.jar
+
+      - name: Fehler zusammenfassen
+        if: failure()
+        run: |
+          echo "### Build fehlgeschlagen - bitte Screenshot dieser Fehler schicken" >> "$GITHUB_STEP_SUMMARY"
+          grep -E "ERROR|error:" build.log | head -60 >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Download-Link erstellen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "build-${{ github.run_number }}" SkyPvP.jar \
+            --title "SkyPvP Build ${{ github.run_number }}" \
+            --notes "Fertige Plugin-Datei: SkyPvP.jar herunterladen und im Server-Webinterface in den Ordner plugins hochladen."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SkyPvP
+          path: SkyPvP.jar
